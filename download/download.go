@@ -1,4 +1,4 @@
-package main
+package download
 
 import (
 	"fmt"
@@ -15,8 +15,8 @@ type SwaggerData struct {
 	KubernetesVersion string
 }
 
-// Downloads the swagger file for the Kubernetes version specified by the user
-func DownloadSwagger(kubeVersion string) (*SwaggerData, error) {
+// SwaggerDownload downloads the swagger file for the Kubernetes version specified by the user
+func SwaggerDownload(kubeVersion string) (*SwaggerData, error) {
 	version, err := semver.ParseTolerant(kubeVersion)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot parse kubernetes version %s", kubeVersion)
@@ -28,6 +28,18 @@ func DownloadSwagger(kubeVersion string) (*SwaggerData, error) {
 
 	log.Printf("Downloading swagger file for Kubernetes %s from %s", version.String(), downloadUrl)
 
+	body, err := FileDownload(downloadUrl)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SwaggerData{
+		Data:              body,
+		KubernetesVersion: version.String(),
+	}, nil
+}
+
+func FileDownload(downloadUrl string) ([]byte, error) {
 	resp, err := http.Get(downloadUrl)
 	if err != nil {
 		return nil, errors.Wrapf(err, "Cannot fetch swagger file from %s", downloadUrl)
@@ -36,15 +48,12 @@ func DownloadSwagger(kubeVersion string) (*SwaggerData, error) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, errors.Wrapf(err, "Cannot read contents of response from %s", downloadUrl)
+		return nil, errors.Wrapf(err, "cannot read contents of response from %s", downloadUrl)
 	}
 
 	if resp.StatusCode > 299 {
-		return nil, fmt.Errorf("Response failed with status code: %d and body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("response failed with status code: %d and body: %s", resp.StatusCode, string(body))
 	}
 
-	return &SwaggerData{
-		Data:              body,
-		KubernetesVersion: version.String(),
-	}, nil
+	return body, nil
 }

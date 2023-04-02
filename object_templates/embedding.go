@@ -1,12 +1,9 @@
 package object_templates
 
-import "embed"
+import _ "embed"
 
 //go:embed .gitignore.tmpl
 var GitIgnore string
-
-//go:embed apimachinery/*
-var ApimachineryRoot embed.FS
 
 //go:embed object_kind.gotmpl
 var ObjectKindTemplate string

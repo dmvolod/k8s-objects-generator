@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/kubewarden/k8s-objects-generator/download"
 	"github.com/kubewarden/k8s-objects-generator/split"
 )
 
@@ -17,7 +18,7 @@ var LICENSE string
 
 func main() {
 	var swaggerFile, kubeVersion, outputDir, gitRepo string
-	var swaggerData *SwaggerData
+	var swaggerData *download.SwaggerData
 	var err error
 
 	flag.StringVar(&swaggerFile, "f", "", "The swagger file to process")
@@ -36,7 +37,7 @@ func main() {
 	}
 
 	if kubeVersion != "" {
-		swaggerData, err = DownloadSwagger(kubeVersion)
+		swaggerData, err = download.SwaggerDownload(kubeVersion)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -46,7 +47,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("cannot read swagger file %s: %v", swaggerFile, err)
 		}
-		swaggerData = &SwaggerData{
+		swaggerData = &download.SwaggerData{
 			Data:              data,
 			KubernetesVersion: "unknown",
 		}
@@ -78,6 +79,7 @@ func main() {
 		outputDir,
 		gitRepo,
 		filepath.Join(templatesTmpDir, "swagger_templates"),
+		kubeVersion,
 	)
 	if err != nil {
 		log.Fatal(err)

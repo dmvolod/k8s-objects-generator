@@ -10,6 +10,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/blang/semver/v4"
 	"github.com/pkg/errors"
 
 	"github.com/kubewarden/k8s-objects-generator/object_templates"
@@ -20,9 +21,10 @@ type Project struct {
 	GitRepo             string
 	SwaggerTemplatesDir string
 	Root                string
+	kubeVersion         string
 }
 
-func NewProject(outputDir, gitRepo, swaggerTemplatesDir string) (Project, error) {
+func NewProject(outputDir, gitRepo, swaggerTemplatesDir, kubeVersion string) (Project, error) {
 	absOut, err := filepath.Abs(outputDir)
 	if err != nil {
 		return Project{}, errors.Wrapf(err, "cannot calculate absolute path of %s", outputDir)
@@ -35,6 +37,7 @@ func NewProject(outputDir, gitRepo, swaggerTemplatesDir string) (Project, error)
 		GitRepo:             gitRepo,
 		SwaggerTemplatesDir: swaggerTemplatesDir,
 		Root:                root,
+		kubeVersion:         kubeVersion,
 	}, nil
 }
 
@@ -82,6 +85,19 @@ func (p *Project) Init(swaggerData []byte, kubernetesVersion, license string) er
 
 func (p *Project) SwaggerFile() string {
 	return filepath.Join(p.Root, "swagger.json")
+}
+
+func (p *Project) ApimachineryRelease() (string, error) {
+	if p.kubeVersion == "" {
+		return "master", nil
+	}
+
+	version, err := semver.ParseTolerant(p.kubeVersion)
+	if err != nil {
+		return "", errors.Wrapf(err, "cannot parse kubernetes version %s", p.kubeVersion)
+	}
+
+	return fmt.Sprintf("release-%d.%d", version.Major, version.Minor), nil
 }
 
 const GO_MOD_TEMPLATE = `

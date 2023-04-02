@@ -69,7 +69,7 @@ func TestKubernetesExtensionParse(t *testing.T) {
 
 func TestGenerateGroupResources(t *testing.T) {
 	outputDir := "/testout"
-	project, err := NewProject(outputDir, "", "")
+	project, err := NewProject(outputDir, "", "", "1.24")
 	assert.NoError(t, err)
 
 	splitter, err := NewSplitter(filepath.Join("testdata", "test-swagger.json"))

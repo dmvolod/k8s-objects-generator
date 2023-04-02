@@ -2,7 +2,6 @@ package split
 
 import (
 	"fmt"
-	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"github.com/iancoleman/strcase"
 	"github.com/spf13/afero"
 
+	"github.com/kubewarden/k8s-objects-generator/download"
 	"github.com/kubewarden/k8s-objects-generator/object_templates"
 	"github.com/kubewarden/k8s-objects-generator/swagger_helpers"
 )
@@ -23,6 +23,11 @@ const (
 	kubernetesVersionKey          = "version"
 	kubernetesKindKey             = "kind"
 )
+
+var staticFiles = []string{
+	"https://raw.githubusercontent.com/kubernetes/apimachinery/%s/pkg/runtime/schema/group_version.go",
+	"https://raw.githubusercontent.com/kubernetes/apimachinery/%s/pkg/runtime/schema/interfaces.go",
+}
 
 type groupVersionResource struct {
 	Group   string
@@ -82,7 +87,7 @@ func (g *groupResource) Generate(project Project, plan *RefactoringPlan) error {
 		}
 	}
 
-	return g.copyStaticFiles(project.Root)
+	return g.copyStaticFiles(project)
 }
 
 func (g *groupResource) generateResourceFile(path string, templ *template.Template, gvk *groupVersionResource) error {
@@ -118,39 +123,25 @@ func groupKindResource(definition *swagger_helpers.Definition) *groupVersionReso
 	}
 }
 
-func (g *groupResource) copyStaticFiles(targetRoot string) error {
+func (g *groupResource) copyStaticFiles(project Project) error {
 	log.Println("============================================================================")
 	log.Println("Generating static content files")
-	err := fs.WalkDir(object_templates.ApimachineryRoot, ".", func(path string, d fs.DirEntry, err error) error {
+	release, err := project.ApimachineryRelease()
+	if err != nil {
+		return err
+	}
+	for _, loc := range staticFiles {
+		targetFilePath := filepath.Join(strings.Split(loc[strings.Index(loc, "%s")+2:], "/")...)
+		targetFilePath = filepath.Join(project.Root, targetFilePath)
+		downloadUrl := fmt.Sprintf(loc, release)
+		data, err := download.FileDownload(downloadUrl)
 		if err != nil {
 			return err
 		}
+		println(data)
+		log.Println("File", downloadUrl, "downloaded into the", filepath.Dir(targetFilePath))
+	}
 
-		// Skipping any directory
-		if d.IsDir() || path == "." {
-			return nil
-		}
-		sourceBuf, err := object_templates.ApimachineryRoot.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		if err = g.fs.MkdirAll(filepath.Join(targetRoot, filepath.Dir(path)), os.ModePerm); err != nil {
-			return nil
-		}
-		targetFilePath := filepath.Join(targetRoot, path)
-		targetFile, err := g.fs.OpenFile(targetFilePath, os.O_CREATE|os.O_RDWR, 0644)
-		if err != nil {
-			return err
-		}
-		log.Println("File", filepath.Base(path), "copied into the", filepath.Dir(targetFilePath))
-		defer targetFile.Close()
-		if _, err = targetFile.Write(sourceBuf); err != nil {
-			return err
-		}
-
-		return nil
-	})
 	log.Println("============================================================================")
 
 	return err
