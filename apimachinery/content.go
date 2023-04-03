@@ -1,6 +1,7 @@
 package apimachinery
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
+	"golang.org/x/tools/go/ast/astutil"
 
 	"github.com/kubewarden/k8s-objects-generator/download"
 	"github.com/kubewarden/k8s-objects-generator/project"
@@ -40,15 +42,33 @@ func (s *staticContent) CopyFiles(project project.Project) error {
 	for _, staticLocation := range apimachineryStaticFiles {
 		targetFilePath := filepath.Join(project.Root, "apimachinery", filepath.Join(strings.Split(staticLocation, "/")...))
 		downloadUrl := apimachineryRepo + release + staticLocation
-		fileData, err := download.FileDownload(downloadUrl)
+		fileData, err := download.FileContent(downloadUrl)
 		if err != nil {
 			return err
 		}
 
-		_, err = parser.ParseExprFrom(token.NewFileSet(), "", fileData, parser.ImportsOnly)
+		file, err := parser.ParseExprFrom(token.NewFileSet(), "", fileData, parser.ImportsOnly)
 		if err != nil {
 			return err
 		}
+
+		astutil.Apply(file, nil, func(c *astutil.Cursor) bool {
+			n := c.Node()
+			switch x := n.(type) {
+			case *ast.CallExpr:
+				id, ok := x.Fun.(*ast.Ident)
+				if ok {
+					if id.Name == "pred" {
+						c.Replace(&ast.UnaryExpr{
+							Op: token.NOT,
+							X:  x,
+						})
+					}
+				}
+			}
+
+			return true
+		})
 
 		log.Println("File", downloadUrl, "downloaded into the", filepath.Dir(targetFilePath))
 	}

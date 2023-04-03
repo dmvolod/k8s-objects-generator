@@ -39,7 +39,7 @@ func main() {
 	}
 
 	if kubeVersion != "" {
-		swaggerData, err = download.SwaggerDownload(kubeVersion)
+		swaggerData, err = download.Swagger(kubeVersion)
 		if err != nil {
 			log.Fatal(err)
 		}

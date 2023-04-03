@@ -15,8 +15,8 @@ type SwaggerData struct {
 	KubernetesVersion string
 }
 
-// SwaggerDownload downloads the swagger file for the Kubernetes version specified by the user
-func SwaggerDownload(kubeVersion string) (*SwaggerData, error) {
+// Swagger downloads the swagger file for the Kubernetes version specified by the user
+func Swagger(kubeVersion string) (*SwaggerData, error) {
 	version, err := semver.ParseTolerant(kubeVersion)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot parse kubernetes version %s", kubeVersion)
@@ -28,7 +28,7 @@ func SwaggerDownload(kubeVersion string) (*SwaggerData, error) {
 
 	log.Printf("Downloading swagger file for Kubernetes %s from %s", version.String(), downloadUrl)
 
-	body, err := FileDownload(downloadUrl)
+	body, err := FileContent(downloadUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func SwaggerDownload(kubeVersion string) (*SwaggerData, error) {
 	}, nil
 }
 
-func FileDownload(downloadUrl string) ([]byte, error) {
+func FileContent(downloadUrl string) ([]byte, error) {
 	resp, err := http.Get(downloadUrl)
 	if err != nil {
 		return nil, errors.Wrapf(err, "Cannot fetch swagger file from %s", downloadUrl)
