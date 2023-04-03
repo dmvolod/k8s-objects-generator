@@ -8,13 +8,15 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+
+	"github.com/kubewarden/k8s-objects-generator/project"
 )
 
 type walkerStateEasyjsonData struct {
-	project Project
+	project project.Project
 }
 
-func GenerateEasyjsonFiles(project Project, plan *RefactoringPlan) error {
+func GenerateEasyjsonFiles(project project.Project, plan *RefactoringPlan) error {
 	if err := project.PrepareEasyjsonEnv(); err != nil {
 		return err
 	}

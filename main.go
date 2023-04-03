@@ -9,7 +9,9 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/kubewarden/k8s-objects-generator/apimachinery"
 	"github.com/kubewarden/k8s-objects-generator/download"
+	"github.com/kubewarden/k8s-objects-generator/project"
 	"github.com/kubewarden/k8s-objects-generator/split"
 )
 
@@ -75,7 +77,7 @@ func main() {
 		}
 	}()
 
-	project, err := split.NewProject(
+	project, err := project.NewProject(
 		outputDir,
 		gitRepo,
 		filepath.Join(templatesTmpDir, "swagger_templates"),
@@ -101,6 +103,12 @@ func main() {
 		log.Fatal(err)
 	}
 
+	fs := afero.NewOsFs()
+	staticContent := apimachinery.NewStaticContent(fs)
+	if err := staticContent.CopyFiles(project); err != nil {
+		log.Fatal(err)
+	}
+
 	if err := splitter.GenerateSwaggerFiles(project, refactoringPlan); err != nil {
 		log.Fatal(err)
 	}
@@ -109,7 +117,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	groupResource := split.NewGroupResource(afero.NewOsFs())
+	groupResource := apimachinery.NewGroupResource(fs)
 	if err := groupResource.Generate(project, refactoringPlan); err != nil {
 		log.Fatal(err)
 	}

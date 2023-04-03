@@ -1,13 +1,17 @@
-package split
+package apimachinery
 
 import (
 	_ "embed"
+
 	"path/filepath"
 	"testing"
 
 	"github.com/go-openapi/spec"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kubewarden/k8s-objects-generator/project"
+	"github.com/kubewarden/k8s-objects-generator/split"
 )
 
 //go:embed testdata/event_gvk.go.gold
@@ -69,10 +73,10 @@ func TestKubernetesExtensionParse(t *testing.T) {
 
 func TestGenerateGroupResources(t *testing.T) {
 	outputDir := "/testout"
-	project, err := NewProject(outputDir, "", "", "1.24")
+	project, err := project.NewProject(outputDir, "", "", "1.24")
 	assert.NoError(t, err)
 
-	splitter, err := NewSplitter(filepath.Join("testdata", "test-swagger.json"))
+	splitter, err := split.NewSplitter(filepath.Join("testdata", "test-swagger.json"))
 	assert.NoError(t, err)
 
 	refactoringPlan, err := splitter.ComputeRefactoringPlan()

@@ -1,4 +1,4 @@
-package split
+package apimachinery
 
 import (
 	"fmt"
@@ -12,8 +12,9 @@ import (
 	"github.com/iancoleman/strcase"
 	"github.com/spf13/afero"
 
-	"github.com/kubewarden/k8s-objects-generator/download"
 	"github.com/kubewarden/k8s-objects-generator/object_templates"
+	"github.com/kubewarden/k8s-objects-generator/project"
+	"github.com/kubewarden/k8s-objects-generator/split"
 	"github.com/kubewarden/k8s-objects-generator/swagger_helpers"
 )
 
@@ -23,11 +24,6 @@ const (
 	kubernetesVersionKey          = "version"
 	kubernetesKindKey             = "kind"
 )
-
-var staticFiles = []string{
-	"https://raw.githubusercontent.com/kubernetes/apimachinery/%s/pkg/runtime/schema/group_version.go",
-	"https://raw.githubusercontent.com/kubernetes/apimachinery/%s/pkg/runtime/schema/interfaces.go",
-}
 
 type groupVersionResource struct {
 	Group   string
@@ -49,7 +45,7 @@ func NewGroupResource(fs afero.Fs) *groupResource {
 	}
 }
 
-func (g *groupResource) Generate(project Project, plan *RefactoringPlan) error {
+func (g *groupResource) Generate(project project.Project, plan *split.RefactoringPlan) error {
 	objectKindTemplate, err := template.New("gvk").Parse(object_templates.ObjectKindTemplate)
 	if err != nil {
 		return err
@@ -87,7 +83,7 @@ func (g *groupResource) Generate(project Project, plan *RefactoringPlan) error {
 		}
 	}
 
-	return g.copyStaticFiles(project)
+	return nil
 }
 
 func (g *groupResource) generateResourceFile(path string, templ *template.Template, gvk *groupVersionResource) error {
@@ -121,30 +117,6 @@ func groupKindResource(definition *swagger_helpers.Definition) *groupVersionReso
 		Version: kubeExtension[kubernetesVersionKey],
 		Kind:    kubeExtension[kubernetesKindKey],
 	}
-}
-
-func (g *groupResource) copyStaticFiles(project Project) error {
-	log.Println("============================================================================")
-	log.Println("Generating static content files")
-	release, err := project.ApimachineryRelease()
-	if err != nil {
-		return err
-	}
-	for _, loc := range staticFiles {
-		targetFilePath := filepath.Join(strings.Split(loc[strings.Index(loc, "%s")+2:], "/")...)
-		targetFilePath = filepath.Join(project.Root, targetFilePath)
-		downloadUrl := fmt.Sprintf(loc, release)
-		data, err := download.FileDownload(downloadUrl)
-		if err != nil {
-			return err
-		}
-		println(data)
-		log.Println("File", downloadUrl, "downloaded into the", filepath.Dir(targetFilePath))
-	}
-
-	log.Println("============================================================================")
-
-	return err
 }
 
 func asKubernetesExtension(e spec.Extensions) (map[string]string, bool) {

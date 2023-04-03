@@ -7,6 +7,8 @@ import (
 
 	openapi_spec "github.com/go-openapi/spec"
 	"github.com/pkg/errors"
+
+	"github.com/kubewarden/k8s-objects-generator/project"
 )
 
 // Takes care of splitting the single big swagger file of Kubernetes
@@ -37,10 +39,10 @@ func (s *Splitter) ComputeRefactoringPlan() (*RefactoringPlan, error) {
 
 type walkerStateSwaggerData struct {
 	swaggerFiles map[string]string
-	project      Project
+	project      project.Project
 }
 
-func (s *Splitter) GenerateSwaggerFiles(project Project, plan *RefactoringPlan) error {
+func (s *Splitter) GenerateSwaggerFiles(project project.Project, plan *RefactoringPlan) error {
 	swaggerFiles, err := plan.RenderNewSwaggerFiles(project.GitRepo)
 	if err != nil {
 		return err
