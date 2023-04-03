@@ -1,6 +1,8 @@
 package apimachinery
 
 import (
+	"go/parser"
+	"go/token"
 	"log"
 	"path/filepath"
 	"strings"
@@ -38,11 +40,16 @@ func (s *staticContent) CopyFiles(project project.Project) error {
 	for _, staticLocation := range apimachineryStaticFiles {
 		targetFilePath := filepath.Join(project.Root, "apimachinery", filepath.Join(strings.Split(staticLocation, "/")...))
 		downloadUrl := apimachineryRepo + release + staticLocation
-		data, err := download.FileDownload(downloadUrl)
+		fileData, err := download.FileDownload(downloadUrl)
 		if err != nil {
 			return err
 		}
-		println(data)
+
+		_, err = parser.ParseExprFrom(token.NewFileSet(), "", fileData, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+
 		log.Println("File", downloadUrl, "downloaded into the", filepath.Dir(targetFilePath))
 	}
 
