@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -21,6 +22,7 @@ import (
 const apimachineryRepo = "https://raw.githubusercontent.com/kubernetes/apimachinery/"
 
 var apimachineryStaticFiles = []string{
+	"/pkg/apis/meta/v1/types.go",
 	"/pkg/types/namespacedname.go",
 	"/pkg/types/patch.go",
 	"/pkg/types/uid.go",
@@ -77,23 +79,18 @@ func (s *staticContent) downloadAndModify(location, release string, project proj
 		return fmt.Errorf("unable to parse file, downloaded from %s: %w", downloadUrl, err)
 	}
 
-	pkgs, _ := s.parseDir(token.NewFileSet(), filepath.Dir(targetFilePath), 0)
+	pkgs, _ := s.parseDir(token.NewFileSet(), filepath.Dir(targetFilePath), parser.ParseComments)
 
-	astutil.Apply(file, nil, func(c *astutil.Cursor) bool {
+	astutil.Apply(file, func(c *astutil.Cursor) bool {
 		n := c.Node()
 		switch x := n.(type) {
-		case *ast.ImportSpec:
-			if x.Path != nil && strings.Contains(x.Path.Value, "k8s.io") {
-				x.Path.Value = strings.Replace(x.Path.Value, "k8s.io", project.GitRepo, 1)
-				c.Replace(x)
-			}
-		case *ast.StructType:
-			if isDuplicateEntry(x, pkgs) {
+		case *ast.TypeSpec:
+			if isDuplicateStruct(x, pkgs) {
 				c.Delete()
 			}
 		}
 		return true
-	})
+	}, nil)
 
 	titleComment := []*ast.CommentGroup{
 		{
@@ -103,6 +100,18 @@ func (s *staticContent) downloadAndModify(location, release string, project proj
 				},
 			},
 		},
+	}
+
+	for _, group := range astutil.Imports(fset, file) {
+		for _, spec := range group {
+			if strings.Contains(spec.Path.Value, "k8s.io") {
+				oldPath, err := strconv.Unquote(spec.Path.Value)
+				if err != nil {
+					return err
+				}
+				astutil.RewriteImport(fset, file, oldPath, strings.Replace(oldPath, "k8s.io", project.GitRepo, 1))
+			}
+		}
 	}
 
 	file.Comments = append(titleComment, file.Comments...)
@@ -117,6 +126,7 @@ func (s *staticContent) downloadAndModify(location, release string, project proj
 	if err := printer.Fprint(targetFile, fset, file); err != nil {
 		return err
 	}
+
 	log.Println("File", downloadUrl, "downloaded into the", filepath.Dir(targetFilePath))
 	return nil
 }
@@ -161,10 +171,24 @@ func (s *staticContent) parseFile(fset *token.FileSet, filename string, mode par
 	return parser.ParseFile(fset, filename, buf, mode)
 }
 
-func isDuplicateEntry(entry ast.Node, pkgs map[string]*ast.Package) bool {
+func isDuplicateStruct(entry *ast.TypeSpec, pkgs map[string]*ast.Package) (ret bool) {
 	if pkgs == nil {
 		return false
 	}
 
-	return false
+	for _, pkg := range pkgs {
+		astutil.Apply(pkg, nil, func(c *astutil.Cursor) bool {
+			n := c.Node()
+			switch x := n.(type) {
+			case *ast.TypeSpec:
+				if x.Name.Name == entry.Name.Name {
+					ret = true
+					return false
+				}
+			}
+			return true
+		})
+	}
+
+	return
 }

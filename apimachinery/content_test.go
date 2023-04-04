@@ -18,3 +18,7 @@ func TestCopyStaticContent(t *testing.T) {
 	content := NewStaticContent(fs)
 	assert.NoError(t, content.CopyFiles(project))
 }
+
+func TestAstDelete(t *testing.T) {
+
+}
