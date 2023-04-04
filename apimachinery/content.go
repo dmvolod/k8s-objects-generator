@@ -77,8 +77,7 @@ func (s *staticContent) downloadAndModify(location, release string, project proj
 		return fmt.Errorf("unable to parse file, downloaded from %s: %w", downloadUrl, err)
 	}
 
-	dir, err := s.parseDir(token.NewFileSet(), filepath.Dir(targetFilePath), parser.ParseComments)
-	println(dir)
+	pkgs, _ := s.parseDir(token.NewFileSet(), filepath.Dir(targetFilePath), 0)
 
 	astutil.Apply(file, nil, func(c *astutil.Cursor) bool {
 		n := c.Node()
@@ -87,6 +86,10 @@ func (s *staticContent) downloadAndModify(location, release string, project proj
 			if x.Path != nil && strings.Contains(x.Path.Value, "k8s.io") {
 				x.Path.Value = strings.Replace(x.Path.Value, "k8s.io", project.GitRepo, 1)
 				c.Replace(x)
+			}
+		case *ast.StructType:
+			if isDuplicateEntry(x, pkgs) {
+				c.Delete()
 			}
 		}
 		return true
@@ -119,12 +122,7 @@ func (s *staticContent) downloadAndModify(location, release string, project proj
 }
 
 func (s *staticContent) parseDir(fset *token.FileSet, path string, mode parser.Mode) (pkgs map[string]*ast.Package, first error) {
-	dir, err := s.fs.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer dir.Close()
-	list, err := dir.Readdir(-1)
+	list, err := afero.ReadDir(s.fs, path)
 	if err != nil {
 		return nil, err
 	}
@@ -155,16 +153,18 @@ func (s *staticContent) parseDir(fset *token.FileSet, path string, mode parser.M
 }
 
 func (s *staticContent) parseFile(fset *token.FileSet, filename string, mode parser.Mode) (f *ast.File, err error) {
-	file, err := s.fs.Open(filename)
+	buf, err := afero.ReadFile(s.fs, filename)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
 
-	var buf []byte
-	if _, err := file.Read(buf); err != nil {
-		return nil, err
+	return parser.ParseFile(fset, filename, buf, mode)
+}
+
+func isDuplicateEntry(entry ast.Node, pkgs map[string]*ast.Package) bool {
+	if pkgs == nil {
+		return false
 	}
 
-	return parser.ParseFile(fset, "", buf, mode)
+	return false
 }
