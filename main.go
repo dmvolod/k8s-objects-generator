@@ -103,17 +103,17 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fs := afero.NewOsFs()
-	staticContent := apimachinery.NewStaticContent(fs)
-	if err := staticContent.CopyFiles(project); err != nil {
-		log.Fatal(err)
-	}
-
 	if err := splitter.GenerateSwaggerFiles(project, refactoringPlan); err != nil {
 		log.Fatal(err)
 	}
 
 	if err := split.GenerateEasyjsonFiles(project, refactoringPlan); err != nil {
+		log.Fatal(err)
+	}
+
+	fs := afero.NewOsFs()
+	staticContent := apimachinery.NewStaticContent(fs)
+	if err := staticContent.CopyFiles(project); err != nil {
 		log.Fatal(err)
 	}
 

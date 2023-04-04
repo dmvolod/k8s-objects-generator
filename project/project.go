@@ -89,7 +89,7 @@ func (p *Project) SwaggerFile() string {
 
 func (p *Project) ApimachineryRelease() (string, error) {
 	if p.kubeVersion == "" {
-		return "master", nil
+		return "", nil
 	}
 
 	version, err := semver.ParseTolerant(p.kubeVersion)
