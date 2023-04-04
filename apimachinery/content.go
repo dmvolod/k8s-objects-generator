@@ -1,10 +1,13 @@
 package apimachinery
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -18,6 +21,11 @@ import (
 const apimachineryRepo = "https://raw.githubusercontent.com/kubernetes/apimachinery/"
 
 var apimachineryStaticFiles = []string{
+	"/pkg/types/namespacedname.go",
+	"/pkg/types/patch.go",
+	"/pkg/types/uid.go",
+	"/pkg/runtime/interfaces.go",
+	"/pkg/runtime/types.go",
 	"/pkg/runtime/schema/group_version.go",
 	"/pkg/runtime/schema/interfaces.go",
 }
@@ -40,40 +48,63 @@ func (s *staticContent) CopyFiles(project project.Project) error {
 		return err
 	}
 	for _, staticLocation := range apimachineryStaticFiles {
-		targetFilePath := filepath.Join(project.Root, "apimachinery", filepath.Join(strings.Split(staticLocation, "/")...))
-		downloadUrl := apimachineryRepo + release + staticLocation
-		fileData, err := download.FileContent(downloadUrl)
-		if err != nil {
+		if err := s.downloadAndModify(staticLocation, release, project); err != nil {
 			return err
 		}
-
-		file, err := parser.ParseExprFrom(token.NewFileSet(), "", fileData, parser.ImportsOnly)
-		if err != nil {
-			return err
-		}
-
-		astutil.Apply(file, nil, func(c *astutil.Cursor) bool {
-			n := c.Node()
-			switch x := n.(type) {
-			case *ast.CallExpr:
-				id, ok := x.Fun.(*ast.Ident)
-				if ok {
-					if id.Name == "pred" {
-						c.Replace(&ast.UnaryExpr{
-							Op: token.NOT,
-							X:  x,
-						})
-					}
-				}
-			}
-
-			return true
-		})
-
-		log.Println("File", downloadUrl, "downloaded into the", filepath.Dir(targetFilePath))
 	}
 
 	log.Println("============================================================================")
+	return nil
+}
 
-	return err
+func (s *staticContent) downloadAndModify(location, release string, project project.Project) error {
+	targetFilePath := filepath.Join(project.Root, "apimachinery", filepath.Join(strings.Split(location, "/")...))
+	downloadUrl := apimachineryRepo + release + location
+	fileData, err := download.FileContent(downloadUrl)
+	if err != nil {
+		return err
+	}
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "", fileData, parser.ParseComments)
+	if err != nil {
+		return fmt.Errorf("unable to parse file, downloaded from %s: %w", downloadUrl, err)
+	}
+
+	astutil.Apply(file, nil, func(c *astutil.Cursor) bool {
+		n := c.Node()
+		switch x := n.(type) {
+		case *ast.ImportSpec:
+			if x.Path != nil && strings.Contains(x.Path.Value, "k8s.io") {
+				x.Path.Value = strings.Replace(x.Path.Value, "k8s.io", project.GitRepo, 1)
+				c.Replace(x)
+			}
+		}
+		return true
+	})
+
+	titleComment := []*ast.CommentGroup{
+		{
+			List: []*ast.Comment{
+				{
+					Text: fmt.Sprintf("// Original file location %s\n", downloadUrl),
+				},
+			},
+		},
+	}
+
+	file.Comments = append(titleComment, file.Comments...)
+	if err := s.fs.MkdirAll(filepath.Dir(targetFilePath), os.ModePerm); err != nil {
+		return err
+	}
+	targetFile, err := s.fs.OpenFile(targetFilePath, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return err
+	}
+	defer targetFile.Close()
+	if err := printer.Fprint(targetFile, fset, file); err != nil {
+		return err
+	}
+	log.Println("File", downloadUrl, "downloaded into the", filepath.Dir(targetFilePath))
+	return nil
 }
