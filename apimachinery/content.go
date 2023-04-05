@@ -9,11 +9,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/afero"
-	"golang.org/x/tools/go/ast/astutil"
 
 	"github.com/kubewarden/k8s-objects-generator/download"
 	"github.com/kubewarden/k8s-objects-generator/project"
@@ -56,8 +54,19 @@ func (s *staticContent) CopyFiles(project project.Project) error {
 		return nil
 	}
 
-	for _, staticLocation := range apimachineryStaticFiles {
-		if err := s.downloadAndModify(staticLocation, release, project); err != nil {
+	for _, location := range apimachineryStaticFiles {
+		downloadUrl := apimachineryRepo + release + location
+		fileData, err := download.FileContent(downloadUrl)
+		if err != nil {
+			return err
+		}
+
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, "", fileData, parser.ParseComments)
+		if err != nil {
+			return fmt.Errorf("unable to parse file, downloaded from %s: %w", downloadUrl, err)
+		}
+		if err := s.modifySourceCode(fset, file, downloadUrl, targetPath(project.Root, location), project.GitRepo); err != nil {
 			return err
 		}
 	}
@@ -65,33 +74,50 @@ func (s *staticContent) CopyFiles(project project.Project) error {
 	return nil
 }
 
-func (s *staticContent) downloadAndModify(location, release string, project project.Project) error {
-	targetFilePath := filepath.Join(project.Root, "apimachinery", filepath.Join(strings.Split(location, "/")...))
-	downloadUrl := apimachineryRepo + release + location
-	fileData, err := download.FileContent(downloadUrl)
-	if err != nil {
-		return err
+func (s *staticContent) dirStructMap(root string, locations []string) map[string]bool {
+	uniql := make(map[string]bool)
+	for _, loc := range locations {
+		uniql[filepath.Dir(targetPath(root, loc))] = true
 	}
 
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "", fileData, parser.ParseComments)
-	if err != nil {
-		return fmt.Errorf("unable to parse file, downloaded from %s: %w", downloadUrl, err)
-	}
-
-	pkgs, _ := s.parseDir(token.NewFileSet(), filepath.Dir(targetFilePath), parser.ParseComments)
-
-	astutil.Apply(file, func(c *astutil.Cursor) bool {
-		n := c.Node()
-		switch x := n.(type) {
-		case *ast.TypeSpec:
-			if isDuplicateStruct(x, pkgs) {
-				c.Delete()
+	structs := make(map[string]bool)
+	for loc := range uniql {
+		files, _ := s.parseDir(token.NewFileSet(), loc, parser.ParseComments)
+		for _, file := range files {
+			for _, decl := range file.Decls {
+				if structName := structDeclName(decl); len(structName) > 0 {
+					structs[filepath.Join(loc, structName)] = true
+				}
 			}
 		}
-		return true
-	}, nil)
+	}
 
+	return structs
+}
+
+func structDeclName(decl ast.Decl) string {
+	genDecl, ok := decl.(*ast.GenDecl)
+	if !ok {
+		return ""
+	}
+	for _, spec := range genDecl.Specs {
+		typeSpec, ok := spec.(*ast.TypeSpec)
+		if !ok {
+			continue
+		}
+		if _, ok := typeSpec.Type.(*ast.StructType); ok {
+			return typeSpec.Name.Name
+		}
+	}
+
+	return ""
+}
+
+func targetPath(root, location string) string {
+	return filepath.Join(root, "apimachinery", filepath.Join(strings.Split(location, "/")...))
+}
+
+func (s *staticContent) modifySourceCode(fset *token.FileSet, file *ast.File, downloadUrl, targetFilePath, getRepo string) error {
 	titleComment := []*ast.CommentGroup{
 		{
 			List: []*ast.Comment{
@@ -102,64 +128,53 @@ func (s *staticContent) downloadAndModify(location, release string, project proj
 		},
 	}
 
-	for _, group := range astutil.Imports(fset, file) {
-		for _, spec := range group {
-			if strings.Contains(spec.Path.Value, "k8s.io") {
-				oldPath, err := strconv.Unquote(spec.Path.Value)
-				if err != nil {
-					return err
-				}
-				astutil.RewriteImport(fset, file, oldPath, strings.Replace(oldPath, "k8s.io", project.GitRepo, 1))
+	for _, imp := range file.Imports {
+		if strings.Contains(imp.Path.Value, "k8s.io") {
+			imp.EndPos = imp.End()
+			imp.Path.Value = strings.Replace(imp.Path.Value, "k8s.io", getRepo, 1)
+		}
+	}
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, spec := range genDecl.Specs {
+			_, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
 			}
 		}
 	}
 
 	file.Comments = append(titleComment, file.Comments...)
-	if err := s.fs.MkdirAll(filepath.Dir(targetFilePath), os.ModePerm); err != nil {
+	if err := s.saveFile(fset, file, targetFilePath); err != nil {
 		return err
 	}
-	targetFile, err := s.fs.OpenFile(targetFilePath, os.O_CREATE|os.O_RDWR, 0644)
-	if err != nil {
-		return err
-	}
-	defer targetFile.Close()
-	if err := printer.Fprint(targetFile, fset, file); err != nil {
-		return err
-	}
-
 	log.Println("File", downloadUrl, "downloaded into the", filepath.Dir(targetFilePath))
 	return nil
 }
 
-func (s *staticContent) parseDir(fset *token.FileSet, path string, mode parser.Mode) (pkgs map[string]*ast.Package, first error) {
+func (s *staticContent) parseDir(fset *token.FileSet, path string, mode parser.Mode) ([]*ast.File, error) {
 	list, err := afero.ReadDir(s.fs, path)
 	if err != nil {
 		return nil, err
 	}
 
-	pkgs = make(map[string]*ast.Package)
+	var files []*ast.File
 	for _, d := range list {
 		if d.IsDir() || !strings.HasSuffix(filepath.Base(d.Name()), ".go") {
 			continue
 		}
-		filename := filepath.Join(path, d.Name())
-		if src, err := s.parseFile(fset, filename, mode); err == nil {
-			name := src.Name.Name
-			pkg, found := pkgs[name]
-			if !found {
-				pkg = &ast.Package{
-					Name:  name,
-					Files: make(map[string]*ast.File),
-				}
-				pkgs[name] = pkg
-			}
-			pkg.Files[filename] = src
-		} else if first == nil {
-			first = err
+		if src, err := s.parseFile(fset, filepath.Join(path, d.Name()), mode); err == nil {
+			files = append(files, src)
+		} else {
+			return nil, err
 		}
 	}
 
-	return
+	return files, nil
 }
 
 func (s *staticContent) parseFile(fset *token.FileSet, filename string, mode parser.Mode) (f *ast.File, err error) {
@@ -171,24 +186,14 @@ func (s *staticContent) parseFile(fset *token.FileSet, filename string, mode par
 	return parser.ParseFile(fset, filename, buf, mode)
 }
 
-func isDuplicateStruct(entry *ast.TypeSpec, pkgs map[string]*ast.Package) (ret bool) {
-	if pkgs == nil {
-		return false
+func (s *staticContent) saveFile(fset *token.FileSet, file *ast.File, filePath string) error {
+	if err := s.fs.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
+		return err
 	}
-
-	for _, pkg := range pkgs {
-		astutil.Apply(pkg, nil, func(c *astutil.Cursor) bool {
-			n := c.Node()
-			switch x := n.(type) {
-			case *ast.TypeSpec:
-				if x.Name.Name == entry.Name.Name {
-					ret = true
-					return false
-				}
-			}
-			return true
-		})
+	targetFile, err := s.fs.OpenFile(filePath, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return err
 	}
-
-	return
+	defer targetFile.Close()
+	return printer.Fprint(targetFile, fset, file)
 }
