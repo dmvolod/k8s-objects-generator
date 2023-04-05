@@ -1,7 +1,6 @@
 package apimachinery
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -20,15 +19,15 @@ func TestModifySourceCode(t *testing.T) {
 	assert.NoError(t, content.CopyFiles(project))
 }
 
-func TestStructExtraction(t *testing.T) {
+func TestSourceExtractor(t *testing.T) {
+	const expectedLocation = "../apimachinery/testdata/parse"
 	testParse := []string{
 		"testdata/parse/test.go",
 	}
-	expectedMap := map[string]bool{
-		"../apimachinery/testdata/parse/first":  true,
-		"../apimachinery/testdata/parse/second": true,
-	}
 
-	content := NewStaticContent(afero.NewOsFs())
-	assert.True(t, reflect.DeepEqual(expectedMap, content.dirStructMap("..", testParse)), "The generated structure maps must be equal")
+	sources := NewSourceExtractor(afero.NewOsFs(), "..", testParse)
+	assert.True(t, sources.IsStructExist(expectedLocation, "first"))
+	assert.True(t, sources.IsStructExist(expectedLocation, "second"))
+	assert.False(t, sources.IsStructExist(expectedLocation, "iface"))
+	assert.False(t, sources.IsStructExist("not/defined/location", "first"))
 }

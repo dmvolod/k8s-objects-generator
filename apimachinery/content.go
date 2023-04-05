@@ -35,6 +35,38 @@ type staticContent struct {
 	fs afero.Fs
 }
 
+type sourceExtractor struct {
+	structs map[string]map[string]bool
+}
+
+func NewSourceExtractor(fs afero.Fs, root string, locations []string) *sourceExtractor {
+	uniql := make(map[string]bool)
+	for _, loc := range locations {
+		uniql[filepath.Dir(targetPath(root, loc))] = true
+	}
+
+	structs := make(map[string]map[string]bool)
+	for loc := range uniql {
+		files, _ := parseDir(fs, token.NewFileSet(), loc, parser.ParseComments)
+		structs[loc] = make(map[string]bool)
+		for _, file := range files {
+			for _, decl := range file.Decls {
+				if structName := structDeclName(decl); len(structName) > 0 {
+					structs[loc][structName] = true
+				}
+			}
+		}
+	}
+
+	return &sourceExtractor{
+		structs,
+	}
+}
+
+func (se sourceExtractor) IsStructExist(location, name string) bool {
+	return se.structs[location][name]
+}
+
 func NewStaticContent(fs afero.Fs) *staticContent {
 	return &staticContent{
 		fs: fs,
@@ -66,33 +98,14 @@ func (s *staticContent) CopyFiles(project project.Project) error {
 		if err != nil {
 			return fmt.Errorf("unable to parse file, downloaded from %s: %w", downloadUrl, err)
 		}
-		if err := s.modifySourceCode(fset, file, downloadUrl, targetPath(project.Root, location), project.GitRepo); err != nil {
+		targetFilePath := targetPath(project.Root, location)
+		if err := s.modifySourceCode(fset, file, downloadUrl, targetFilePath, project.GitRepo); err != nil {
 			return err
 		}
+		log.Println("File", downloadUrl, "downloaded into the", filepath.Dir(targetFilePath))
 	}
 
 	return nil
-}
-
-func (s *staticContent) dirStructMap(root string, locations []string) map[string]bool {
-	uniql := make(map[string]bool)
-	for _, loc := range locations {
-		uniql[filepath.Dir(targetPath(root, loc))] = true
-	}
-
-	structs := make(map[string]bool)
-	for loc := range uniql {
-		files, _ := s.parseDir(token.NewFileSet(), loc, parser.ParseComments)
-		for _, file := range files {
-			for _, decl := range file.Decls {
-				if structName := structDeclName(decl); len(structName) > 0 {
-					structs[filepath.Join(loc, structName)] = true
-				}
-			}
-		}
-	}
-
-	return structs
 }
 
 func structDeclName(decl ast.Decl) string {
@@ -149,15 +162,11 @@ func (s *staticContent) modifySourceCode(fset *token.FileSet, file *ast.File, do
 	}
 
 	file.Comments = append(titleComment, file.Comments...)
-	if err := s.saveFile(fset, file, targetFilePath); err != nil {
-		return err
-	}
-	log.Println("File", downloadUrl, "downloaded into the", filepath.Dir(targetFilePath))
-	return nil
+	return s.saveFile(fset, file, targetFilePath)
 }
 
-func (s *staticContent) parseDir(fset *token.FileSet, path string, mode parser.Mode) ([]*ast.File, error) {
-	list, err := afero.ReadDir(s.fs, path)
+func parseDir(fs afero.Fs, fset *token.FileSet, path string, mode parser.Mode) ([]*ast.File, error) {
+	list, err := afero.ReadDir(fs, path)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +176,7 @@ func (s *staticContent) parseDir(fset *token.FileSet, path string, mode parser.M
 		if d.IsDir() || !strings.HasSuffix(filepath.Base(d.Name()), ".go") {
 			continue
 		}
-		if src, err := s.parseFile(fset, filepath.Join(path, d.Name()), mode); err == nil {
+		if src, err := parseFile(fs, fset, filepath.Join(path, d.Name()), mode); err == nil {
 			files = append(files, src)
 		} else {
 			return nil, err
@@ -177,8 +186,8 @@ func (s *staticContent) parseDir(fset *token.FileSet, path string, mode parser.M
 	return files, nil
 }
 
-func (s *staticContent) parseFile(fset *token.FileSet, filename string, mode parser.Mode) (f *ast.File, err error) {
-	buf, err := afero.ReadFile(s.fs, filename)
+func parseFile(fs afero.Fs, fset *token.FileSet, filename string, mode parser.Mode) (f *ast.File, err error) {
+	buf, err := afero.ReadFile(fs, filename)
 	if err != nil {
 		return nil, err
 	}
