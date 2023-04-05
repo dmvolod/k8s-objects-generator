@@ -112,8 +112,8 @@ func main() {
 	}
 
 	fs := afero.NewOsFs()
-	staticContent := apimachinery.NewStaticContent(fs)
-	if err := staticContent.CopyFiles(project); err != nil {
+	staticContent := apimachinery.NewStaticContent(fs, project)
+	if err := staticContent.CopyFiles(); err != nil {
 		log.Fatal(err)
 	}
 

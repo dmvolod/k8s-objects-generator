@@ -32,7 +32,9 @@ var apimachineryStaticFiles = []string{
 }
 
 type staticContent struct {
-	fs afero.Fs
+	fs      afero.Fs
+	se      *sourceExtractor
+	project project.Project
 }
 
 type sourceExtractor struct {
@@ -67,17 +69,19 @@ func (se sourceExtractor) IsStructExist(location, name string) bool {
 	return se.structs[location][name]
 }
 
-func NewStaticContent(fs afero.Fs) *staticContent {
+func NewStaticContent(fs afero.Fs, project project.Project) *staticContent {
 	return &staticContent{
-		fs: fs,
+		fs:      fs,
+		se:      NewSourceExtractor(fs, project.Root, apimachineryStaticFiles),
+		project: project,
 	}
 }
 
-func (s *staticContent) CopyFiles(project project.Project) error {
+func (s *staticContent) CopyFiles() error {
 	log.Println("============================================================================")
 	log.Println("Generating static content files")
 	defer log.Println("============================================================================")
-	release, err := project.ApimachineryRelease()
+	release, err := s.project.ApimachineryRelease()
 	if err != nil {
 		return err
 	}
@@ -98,14 +102,58 @@ func (s *staticContent) CopyFiles(project project.Project) error {
 		if err != nil {
 			return fmt.Errorf("unable to parse file, downloaded from %s: %w", downloadUrl, err)
 		}
-		targetFilePath := targetPath(project.Root, location)
-		if err := s.modifySourceCode(fset, file, downloadUrl, targetFilePath, project.GitRepo); err != nil {
+		targetFilePath := targetPath(s.project.Root, location)
+		if err := s.modifySourceCode(fset, file, downloadUrl, targetFilePath); err != nil {
 			return err
 		}
 		log.Println("File", downloadUrl, "downloaded into the", filepath.Dir(targetFilePath))
 	}
 
 	return nil
+}
+
+func (s *staticContent) modifySourceCode(fset *token.FileSet, file *ast.File, downloadUrl, targetFilePath string) error {
+	titleComment := []*ast.CommentGroup{
+		{
+			List: []*ast.Comment{
+				{
+					Text: fmt.Sprintf("// Original file location %s\n", downloadUrl),
+				},
+			},
+		},
+	}
+
+	for _, imp := range file.Imports {
+		if strings.Contains(imp.Path.Value, "k8s.io") {
+			imp.EndPos = imp.End()
+			imp.Path.Value = strings.Replace(imp.Path.Value, "k8s.io", s.project.GitRepo, 1)
+		}
+	}
+
+	for _, decl := range file.Decls {
+		if structName := structDeclName(decl); len(structName) > 0 && s.se.IsStructExist(filepath.Base(targetFilePath), structName) {
+			//TODO (dmvolod) Remove struct declaration
+		}
+	}
+
+	file.Comments = append(titleComment, file.Comments...)
+	return s.saveFile(fset, file, targetFilePath)
+}
+
+func (s *staticContent) saveFile(fset *token.FileSet, file *ast.File, filePath string) error {
+	if err := s.fs.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
+		return err
+	}
+	targetFile, err := s.fs.OpenFile(filePath, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return err
+	}
+	defer targetFile.Close()
+	return printer.Fprint(targetFile, fset, file)
+}
+
+func targetPath(root, location string) string {
+	return filepath.Join(root, "apimachinery", filepath.Join(strings.Split(location, "/")...))
 }
 
 func structDeclName(decl ast.Decl) string {
@@ -124,45 +172,6 @@ func structDeclName(decl ast.Decl) string {
 	}
 
 	return ""
-}
-
-func targetPath(root, location string) string {
-	return filepath.Join(root, "apimachinery", filepath.Join(strings.Split(location, "/")...))
-}
-
-func (s *staticContent) modifySourceCode(fset *token.FileSet, file *ast.File, downloadUrl, targetFilePath, getRepo string) error {
-	titleComment := []*ast.CommentGroup{
-		{
-			List: []*ast.Comment{
-				{
-					Text: fmt.Sprintf("// Original file location %s\n", downloadUrl),
-				},
-			},
-		},
-	}
-
-	for _, imp := range file.Imports {
-		if strings.Contains(imp.Path.Value, "k8s.io") {
-			imp.EndPos = imp.End()
-			imp.Path.Value = strings.Replace(imp.Path.Value, "k8s.io", getRepo, 1)
-		}
-	}
-
-	for _, decl := range file.Decls {
-		genDecl, ok := decl.(*ast.GenDecl)
-		if !ok {
-			continue
-		}
-		for _, spec := range genDecl.Specs {
-			_, ok := spec.(*ast.TypeSpec)
-			if !ok {
-				continue
-			}
-		}
-	}
-
-	file.Comments = append(titleComment, file.Comments...)
-	return s.saveFile(fset, file, targetFilePath)
 }
 
 func parseDir(fs afero.Fs, fset *token.FileSet, path string, mode parser.Mode) ([]*ast.File, error) {
@@ -193,16 +202,4 @@ func parseFile(fs afero.Fs, fset *token.FileSet, filename string, mode parser.Mo
 	}
 
 	return parser.ParseFile(fset, filename, buf, mode)
-}
-
-func (s *staticContent) saveFile(fset *token.FileSet, file *ast.File, filePath string) error {
-	if err := s.fs.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
-		return err
-	}
-	targetFile, err := s.fs.OpenFile(filePath, os.O_CREATE|os.O_RDWR, 0644)
-	if err != nil {
-		return err
-	}
-	defer targetFile.Close()
-	return printer.Fprint(targetFile, fset, file)
 }

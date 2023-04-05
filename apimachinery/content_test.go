@@ -15,12 +15,16 @@ func TestModifySourceCode(t *testing.T) {
 	assert.NoError(t, err)
 
 	fs := afero.NewMemMapFs()
-	content := NewStaticContent(fs)
-	assert.NoError(t, content.CopyFiles(project))
+	content := NewStaticContent(fs, project)
+	assert.NoError(t, content.CopyFiles())
 }
 
 func TestSourceExtractor(t *testing.T) {
-	const expectedLocation = "../apimachinery/testdata/parse"
+	const (
+		expectedLocation   = "../apimachinery/testdata/parse"
+		unexpectedLocation = "not/defined/location"
+	)
+
 	testParse := []string{
 		"testdata/parse/test.go",
 	}
@@ -29,5 +33,5 @@ func TestSourceExtractor(t *testing.T) {
 	assert.True(t, sources.IsStructExist(expectedLocation, "first"))
 	assert.True(t, sources.IsStructExist(expectedLocation, "second"))
 	assert.False(t, sources.IsStructExist(expectedLocation, "iface"))
-	assert.False(t, sources.IsStructExist("not/defined/location", "first"))
+	assert.False(t, sources.IsStructExist(unexpectedLocation, "first"))
 }
