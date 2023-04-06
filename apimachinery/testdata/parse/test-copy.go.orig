@@ -1,0 +1,18 @@
+/*
+This is test file for copy
+*/
+
+package parse
+
+import (
+	"k8s.io/apimachinery/pkg/types"
+)
+
+type first struct {
+    // This is a comment for data
+	data string
+}
+
+type third struct {
+	UID types.UID
+}

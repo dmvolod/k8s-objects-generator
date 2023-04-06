@@ -1,0 +1,10 @@
+// Original file location http://mock.url
+package parse
+
+import (
+	"github.com/kubewarden/k8s-objects/apimachinery/pkg/types"
+)
+
+type third struct {
+	UID types.UID
+}

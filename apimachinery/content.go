@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"golang.org/x/tools/go/ast/astutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -19,7 +20,7 @@ import (
 
 const apimachineryRepo = "https://raw.githubusercontent.com/kubernetes/apimachinery/"
 
-var apimachineryStaticFiles = []string{
+var StaticFiles = []string{
 	"/pkg/apis/meta/v1/types.go",
 	"/pkg/types/namespacedname.go",
 	"/pkg/types/patch.go",
@@ -32,9 +33,10 @@ var apimachineryStaticFiles = []string{
 }
 
 type staticContent struct {
-	fs      afero.Fs
-	se      *sourceExtractor
-	project project.Project
+	fs          afero.Fs
+	extractor   *sourceExtractor
+	staticFiles []string
+	project     project.Project
 }
 
 type sourceExtractor struct {
@@ -69,11 +71,12 @@ func (se sourceExtractor) IsStructExist(location, name string) bool {
 	return se.structs[location][name]
 }
 
-func NewStaticContent(fs afero.Fs, project project.Project) *staticContent {
+func NewStaticContent(fs afero.Fs, project project.Project, staticFiles []string) *staticContent {
 	return &staticContent{
-		fs:      fs,
-		se:      NewSourceExtractor(fs, project.Root, apimachineryStaticFiles),
-		project: project,
+		fs:          fs,
+		staticFiles: staticFiles,
+		extractor:   NewSourceExtractor(fs, project.Root, staticFiles),
+		project:     project,
 	}
 }
 
@@ -90,7 +93,7 @@ func (s *staticContent) CopyFiles() error {
 		return nil
 	}
 
-	for _, location := range apimachineryStaticFiles {
+	for _, location := range s.staticFiles {
 		downloadUrl := apimachineryRepo + release + location
 		fileData, err := download.FileContent(downloadUrl)
 		if err != nil {
@@ -117,7 +120,8 @@ func (s *staticContent) modifySourceCode(fset *token.FileSet, file *ast.File, do
 		{
 			List: []*ast.Comment{
 				{
-					Text: fmt.Sprintf("// Original file location %s\n", downloadUrl),
+					Slash: token.Pos(1),
+					Text:  fmt.Sprintf("// Original file location %s\n", downloadUrl),
 				},
 			},
 		},
@@ -130,13 +134,27 @@ func (s *staticContent) modifySourceCode(fset *token.FileSet, file *ast.File, do
 		}
 	}
 
-	for _, decl := range file.Decls {
-		if structName := structDeclName(decl); len(structName) > 0 && s.se.IsStructExist(filepath.Base(targetFilePath), structName) {
-			//TODO (dmvolod) Remove struct declaration
+	/*var newDecls []ast.Decl
+	for idx, decl := range file.Decls {
+		if structName := structDeclName(decl); !(len(structName) > 0 && s.extractor.IsStructExist(filepath.Dir(targetFilePath), structName)) {
+			newDecls = append(newDecls, file.Decls[idx])
 		}
 	}
+	file.Decls = newDecls
+	*/
+	astutil.Apply(file, func(c *astutil.Cursor) bool {
+		n := c.Node()
+		if d, ok := n.(*ast.GenDecl); ok && len(d.Specs) > 0 {
+			if t, ok := d.Specs[0].(*ast.TypeSpec); ok && s.extractor.IsStructExist(filepath.Dir(targetFilePath), t.Name.Name) {
+				c.Delete()
+				deleteComments(file, d.Pos(), d.End())
+			}
+		}
+		return true
+	}, nil)
 
 	file.Comments = append(titleComment, file.Comments...)
+	println(titleComment)
 	return s.saveFile(fset, file, targetFilePath)
 }
 
@@ -149,11 +167,21 @@ func (s *staticContent) saveFile(fset *token.FileSet, file *ast.File, filePath s
 		return err
 	}
 	defer targetFile.Close()
-	return printer.Fprint(targetFile, fset, file)
+	return printer.Fprint(os.Stdout, fset, file)
 }
 
 func targetPath(root, location string) string {
 	return filepath.Join(root, "apimachinery", filepath.Join(strings.Split(location, "/")...))
+}
+
+func deleteComments(file *ast.File, pos, end token.Pos) {
+	var newComments []*ast.CommentGroup
+	for _, com := range file.Comments {
+		if !(com.Pos() >= pos && com.End() <= end) {
+			newComments = append(newComments, com)
+		}
+	}
+	file.Comments = newComments
 }
 
 func structDeclName(decl ast.Decl) string {
