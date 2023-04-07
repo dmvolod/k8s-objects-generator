@@ -9,6 +9,8 @@ import (
 	"github.com/kubewarden/k8s-objects/apimachinery/pkg/types"
 )
 
+// third is the struct to be kept in this file
+// second line of comments
 type third struct {
 	UID types.UID
 }
