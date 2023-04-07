@@ -6,13 +6,13 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
-	"golang.org/x/tools/go/ast/astutil"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/afero"
+	"golang.org/x/tools/go/ast/astutil"
 
 	"github.com/kubewarden/k8s-objects-generator/download"
 	"github.com/kubewarden/k8s-objects-generator/project"
@@ -31,7 +31,7 @@ var StaticFiles = []string{
 	"/pkg/apis/meta/v1/types.go",
 }
 
-type staticContent struct {
+type StaticContent struct {
 	fs          afero.Fs
 	extractor   *sourceExtractor
 	staticFiles []string
@@ -42,7 +42,7 @@ type sourceExtractor struct {
 	structs map[string]map[string]bool
 }
 
-func NewSourceExtractor(fs afero.Fs, root string, locations []string) *sourceExtractor {
+func newSourceExtractor(fs afero.Fs, root string, locations []string) *sourceExtractor {
 	uniql := make(map[string]bool)
 	for _, loc := range locations {
 		uniql[filepath.Dir(targetPath(root, loc))] = true
@@ -70,16 +70,16 @@ func (se sourceExtractor) IsStructExist(location, name string) bool {
 	return se.structs[location][name]
 }
 
-func NewStaticContent(fs afero.Fs, project project.Project, staticFiles []string) *staticContent {
-	return &staticContent{
+func NewStaticContent(fs afero.Fs, project project.Project, staticFiles []string) *StaticContent {
+	return &StaticContent{
 		fs:          fs,
 		staticFiles: staticFiles,
-		extractor:   NewSourceExtractor(fs, project.Root, staticFiles),
+		extractor:   newSourceExtractor(fs, project.Root, staticFiles),
 		project:     project,
 	}
 }
 
-func (s *staticContent) CopyFiles() error {
+func (s *StaticContent) CopyFiles() error {
 	log.Println("============================================================================")
 	log.Println("Generating static content files")
 	defer log.Println("============================================================================")
@@ -117,7 +117,7 @@ func (s *staticContent) CopyFiles() error {
 	return nil
 }
 
-func (s *staticContent) modifySourceCode(file *ast.File, downloadUrl, targetFilePath string) error {
+func (s *StaticContent) modifySourceCode(file *ast.File, downloadUrl, targetFilePath string) error {
 	titleComment := []*ast.CommentGroup{
 		{
 			List: []*ast.Comment{
@@ -151,7 +151,7 @@ func (s *staticContent) modifySourceCode(file *ast.File, downloadUrl, targetFile
 	return nil
 }
 
-func (s *staticContent) saveFile(fset *token.FileSet, file *ast.File, filePath string) error {
+func (s *StaticContent) saveFile(fset *token.FileSet, file *ast.File, filePath string) error {
 	if err := s.fs.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
 		return err
 	}

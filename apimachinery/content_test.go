@@ -54,7 +54,7 @@ func TestSourceExtractor(t *testing.T) {
 		"testdata/parse/test.go",
 	}
 
-	sources := NewSourceExtractor(afero.NewOsFs(), "..", testParse)
+	sources := newSourceExtractor(afero.NewOsFs(), "..", testParse)
 	assert.True(t, sources.IsStructExist(expectedLocation, "first"))
 	assert.True(t, sources.IsStructExist(expectedLocation, "second"))
 	assert.False(t, sources.IsStructExist(expectedLocation, "iface"))
