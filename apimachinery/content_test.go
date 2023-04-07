@@ -1,8 +1,10 @@
 package apimachinery
 
 import (
+	"bytes"
 	_ "embed"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"os"
 	"testing"
@@ -19,6 +21,9 @@ var testCopyFile string
 //go:embed testdata/parse/test.go
 var testFile string
 
+//go:embed testdata/parse/test-copy.go.gold
+var testCopyGoldFile string
+
 func TestModifySourceCode(t *testing.T) {
 	project, err := project.NewProject("/testout", "github.com/kubewarden/k8s-objects", "", "")
 	assert.NoError(t, err)
@@ -30,11 +35,14 @@ func TestModifySourceCode(t *testing.T) {
 
 	assert.NoError(t, afero.WriteFile(fs, targetPath(project.Root, "testdata/parse/test.go"), []byte(testFile), os.ModePerm))
 	content := NewStaticContent(fs, project, testParse)
-	file, err := parser.ParseFile(token.NewFileSet(), "", testCopyFile, parser.ParseComments)
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "", testCopyFile, parser.ParseComments)
 	assert.NoError(t, err)
-	//printer.Fprint(os.Stdout, token.NewFileSet(), file)
 
-	assert.NoError(t, content.modifySourceCode(token.NewFileSet(), file, "http://mock.url", targetPath(project.Root, "testdata/parse/test-copy.go")))
+	var buf bytes.Buffer
+	assert.NoError(t, content.modifySourceCode(file, "http://mock.url", targetPath(project.Root, "testdata/parse/test-copy.go")))
+	assert.NoError(t, printer.Fprint(&buf, fset, file))
+	assert.Equal(t, testCopyGoldFile, buf.String())
 }
 
 func TestSourceExtractor(t *testing.T) {

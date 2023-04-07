@@ -21,7 +21,6 @@ import (
 const apimachineryRepo = "https://raw.githubusercontent.com/kubernetes/apimachinery/"
 
 var StaticFiles = []string{
-	"/pkg/apis/meta/v1/types.go",
 	"/pkg/types/namespacedname.go",
 	"/pkg/types/patch.go",
 	"/pkg/types/uid.go",
@@ -106,7 +105,10 @@ func (s *staticContent) CopyFiles() error {
 			return fmt.Errorf("unable to parse file, downloaded from %s: %w", downloadUrl, err)
 		}
 		targetFilePath := targetPath(s.project.Root, location)
-		if err := s.modifySourceCode(fset, file, downloadUrl, targetFilePath); err != nil {
+		if err = s.modifySourceCode(file, downloadUrl, targetFilePath); err != nil {
+			return err
+		}
+		if err = s.saveFile(fset, file, targetFilePath); err != nil {
 			return err
 		}
 		log.Println("File", downloadUrl, "downloaded into the", filepath.Dir(targetFilePath))
@@ -115,7 +117,7 @@ func (s *staticContent) CopyFiles() error {
 	return nil
 }
 
-func (s *staticContent) modifySourceCode(fset *token.FileSet, file *ast.File, downloadUrl, targetFilePath string) error {
+func (s *staticContent) modifySourceCode(file *ast.File, downloadUrl, targetFilePath string) error {
 	titleComment := []*ast.CommentGroup{
 		{
 			List: []*ast.Comment{
@@ -134,14 +136,6 @@ func (s *staticContent) modifySourceCode(fset *token.FileSet, file *ast.File, do
 		}
 	}
 
-	/*var newDecls []ast.Decl
-	for idx, decl := range file.Decls {
-		if structName := structDeclName(decl); !(len(structName) > 0 && s.extractor.IsStructExist(filepath.Dir(targetFilePath), structName)) {
-			newDecls = append(newDecls, file.Decls[idx])
-		}
-	}
-	file.Decls = newDecls
-	*/
 	astutil.Apply(file, func(c *astutil.Cursor) bool {
 		n := c.Node()
 		if d, ok := n.(*ast.GenDecl); ok && len(d.Specs) > 0 {
@@ -154,8 +148,7 @@ func (s *staticContent) modifySourceCode(fset *token.FileSet, file *ast.File, do
 	}, nil)
 
 	file.Comments = append(titleComment, file.Comments...)
-	println(titleComment)
-	return s.saveFile(fset, file, targetFilePath)
+	return nil
 }
 
 func (s *staticContent) saveFile(fset *token.FileSet, file *ast.File, filePath string) error {
@@ -167,7 +160,7 @@ func (s *staticContent) saveFile(fset *token.FileSet, file *ast.File, filePath s
 		return err
 	}
 	defer targetFile.Close()
-	return printer.Fprint(os.Stdout, fset, file)
+	return printer.Fprint(targetFile, fset, file)
 }
 
 func targetPath(root, location string) string {
@@ -177,7 +170,7 @@ func targetPath(root, location string) string {
 func deleteComments(file *ast.File, pos, end token.Pos) {
 	var newComments []*ast.CommentGroup
 	for _, com := range file.Comments {
-		if !(com.Pos() >= pos && com.End() <= end) {
+		if !((com.Pos() >= pos && com.End() <= end) || (com.End()+1 == pos)) {
 			newComments = append(newComments, com)
 		}
 	}

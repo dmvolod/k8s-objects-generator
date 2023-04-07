@@ -1,4 +1,8 @@
 // Original file location http://mock.url
+/*
+This is test file for copy
+*/
+
 package parse
 
 import (

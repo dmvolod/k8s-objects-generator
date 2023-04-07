@@ -8,6 +8,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+// fist is the struct to be removed from this file
+// second line of comments
 type first struct {
     // This is a comment for data
 	data string
